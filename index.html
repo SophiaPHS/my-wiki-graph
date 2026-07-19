@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>我的工作Wiki - 知识图谱</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #0f1117;
+  color: #e0e0e0;
+  overflow: hidden;
+}
+#canvas {
+  width: 100vw;
+  height: 100vh;
+  cursor: grab;
+}
+#canvas:active { cursor: grabbing; }
+#tooltip {
+  position: fixed;
+  background: rgba(20, 22, 30, 0.95);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 13px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+  max-width: 320px;
+  z-index: 100;
+  backdrop-filter: blur(10px);
+}
+#tooltip .tt-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+#tooltip .tt-type {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-bottom: 6px;
+}
+#tooltip .tt-docs {
+  font-size: 12px;
+  color: #999;
+  line-height: 1.6;
+}
+#tooltip .tt-docs a {
+  color: #4fc3f7;
+  text-decoration: none;
+}
+#tooltip .tt-docs a:hover { text-decoration: underline; }
+#legend {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  background: rgba(20, 22, 30, 0.9);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  padding: 14px 18px;
+  font-size: 13px;
+  backdrop-filter: blur(10px);
+  z-index: 50;
+}
+#legend .legend-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+#legend .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+#legend .legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+#header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 16px 24px;
+  background: linear-gradient(180deg, rgba(15,17,23,0.95) 0%, rgba(15,17,23,0) 100%);
+  z-index: 50;
+  pointer-events: none;
+}
+#header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+}
+#header p {
+  font-size: 12px;
+  color: #666;
+  margin-top: 2px;
+}
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>🔗 我的工作Wiki 知识图谱</h1>
+  <p>节点 = 关键词 · 连线 = 关联文档 · 点击节点查看详情 · 滚轮缩放 · 拖拽移动</p>
+</div>
+<canvas id="canvas"></canvas>
+<div id="tooltip"></div>
+<div id="legend">
+  <div class="legend-title">图例</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#4fc3f7"></div> 关键词节点</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ffb74d"></div> 文档节点</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#81c784"></div> 分类节点</div>
+</div>
+
+<script>
+// === 数据 ===
+const data = {
+  categories: [
+    { id: 'cat-study', name: '学习笔记', color: '#81c784', url: 'https://s.tal.com/a/3P3kQS' },
+    { id: 'cat-weekly', name: '周报存档', color: '#81c784', url: 'https://s.tal.com/a/AiogaQ' },
+    { id: 'cat-issue', name: '项目问题与解决', color: '#81c784', url: 'https://s.tal.com/a/T8ACro' },
+    { id: 'cat-flow', name: '项目工作流程', color: '#81c784', url: 'https://s.tal.com/a/4tJUpe' },
+  ],
+  documents: [
+    {
+      id: 'doc-ipc',
+      title: 'Electron IPC 进程通信学习笔记',
+      category: 'cat-study',
+      url: 'https://s.tal.com/a/Dwxqmu',
+      keywords: ['Electron', 'IPC', 'ipcMain', 'ipcRenderer', 'contextBridge', 'preload', '进程通信', 'invoke', 'handle', 'sendSync', 'webContents', '安全架构', '桌面应用']
+    },
+    {
+      id: 'doc-weekly-w27',
+      title: '2026年7月第2周周报（7.6-7.12）',
+      category: 'cat-weekly',
+      url: 'https://s.tal.com/a/ZTbdA2',
+      keywords: ['直播星盘', '智能复盘报告', '试用期目标', 'AI开发', '分层规划', '代码可读性', '产品上线流程', '联调']
+    }
+  ],
+  // 关键词共现关系：同一关键词出现在多篇文档中则有关联
+  keywordLinks: [
+    // Electron IPC 笔记的关键词
+    { keyword: 'Electron', docs: ['doc-ipc'] },
+    { keyword: 'IPC', docs: ['doc-ipc'] },
+    { keyword: 'ipcMain', docs: ['doc-ipc'] },
+    { keyword: 'ipcRenderer', docs: ['doc-ipc'] },
+    { keyword: 'contextBridge', docs: ['doc-ipc'] },
+    { keyword: 'preload', docs: ['doc-ipc'] },
+    { keyword: '进程通信', docs: ['doc-ipc'] },
+    { keyword: 'invoke', docs: ['doc-ipc'] },
+    { keyword: 'handle', docs: ['doc-ipc'] },
+    { keyword: 'sendSync', docs: ['doc-ipc'] },
+    { keyword: 'webContents', docs: ['doc-ipc'] },
+    { keyword: '安全架构', docs: ['doc-ipc'] },
+    { keyword: '桌面应用', docs: ['doc-ipc'] },
+    // 周报的关键词
+    { keyword: '直播星盘', docs: ['doc-weekly-w27'] },
+    { keyword: '智能复盘报告', docs: ['doc-weekly-w27'] },
+    { keyword: '试用期目标', docs: ['doc-weekly-w27'] },
+    { keyword: 'AI开发', docs: ['doc-weekly-w27'] },
+    { keyword: '分层规划', docs: ['doc-weekly-w27'] },
+    { keyword: '代码可读性', docs: ['doc-weekly-w27'] },
+    { keyword: '产品上线流程', docs: ['doc-weekly-w27'] },
+    { keyword: '联调', docs: ['doc-weekly-w27'] },
+  ]
+};
+
+// === 力导向图布局 ===
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth * devicePixelRatio;
+  H = canvas.height = window.innerHeight * devicePixelRatio;
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+}
+resize();
+window.addEventListener('resize', resize);
+
+// 构建节点
+const nodes = [];
+const links = [];
+
+// 分类节点
+data.categories.forEach((c, i) => {
+  const angle = (i / data.categories.length) * Math.PI * 2;
+  nodes.push({
+    id: c.id,
+    label: c.name,
+    type: 'category',
+    color: c.color,
+    url: c.url,
+    x: window.innerWidth / 2 + Math.cos(angle) * 120,
+    y: window.innerHeight / 2 + Math.sin(angle) * 120,
+    vx: 0, vy: 0, r: 22
+  });
+});
+
+// 文档节点
+data.documents.forEach((d, i) => {
+  const cat = nodes.find(n => n.id === d.category);
+  const angle = (i / data.documents.length) * Math.PI * 2;
+  nodes.push({
+    id: d.id,
+    label: d.title,
+    type: 'document',
+    color: '#ffb74d',
+    url: d.url,
+    category: d.category,
+    keywords: d.keywords,
+    x: (cat ? cat.x : window.innerWidth/2) + Math.cos(angle) * 80,
+    y: (cat ? cat.y : window.innerHeight/2) + Math.sin(angle) * 80,
+    vx: 0, vy: 0, r: 18
+  });
+  // 文档 -> 分类 连线
+  if (cat) {
+    links.push({ source: d.id, target: cat.id, type: 'category' });
+  }
+});
+
+// 关键词节点
+const keywordMap = {};
+data.keywordLinks.forEach((kl, i) => {
+  if (!keywordMap[kl.keyword]) {
+    const angle = (i / data.keywordLinks.length) * Math.PI * 2;
+    keywordMap[kl.keyword] = nodes.push({
+      id: 'kw-' + kl.keyword,
+      label: kl.keyword,
+      type: 'keyword',
+      color: '#4fc3f7',
+      docs: kl.docs,
+      x: window.innerWidth / 2 + Math.cos(angle) * 250,
+      y: window.innerHeight / 2 + Math.sin(angle) * 250,
+      vx: 0, vy: 0, r: 14
+    }) - 1;
+  }
+  // 关键词 -> 文档 连线
+  kl.docs.forEach(docId => {
+    links.push({ source: 'kw-' + kl.keyword, target: docId, type: 'keyword' });
+  });
+});
+
+// === 物理模拟 ===
+const REPULSION = 3000;
+const SPRING = 0.02;
+const SPRING_LENGTH = 120;
+const DAMPING = 0.85;
+const CENTER_GRAVITY = 0.003;
+
+function simulate() {
+  // 斥力
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const dx = nodes[i].x - nodes[j].x;
+      const dy = nodes[i].y - nodes[j].y;
+      const dist = Math.max(Math.sqrt(dx*dx + dy*dy), 1);
+      const force = REPULSION / (dist * dist);
+      const fx = (dx / dist) * force;
+      const fy = (dy / dist) * force;
+      nodes[i].vx += fx;
+      nodes[i].vy += fy;
+      nodes[j].vx -= fx;
+      nodes[j].vy -= fy;
+    }
+  }
+  // 弹簧力（连线）
+  links.forEach(link => {
+    const s = nodes.find(n => n.id === link.source);
+    const t = nodes.find(n => n.id === link.target);
+    if (!s || !t) return;
+    const dx = t.x - s.x;
+    const dy = t.y - s.y;
+    const dist = Math.max(Math.sqrt(dx*dx + dy*dy), 1);
+    const force = SPRING * (dist - SPRING_LENGTH);
+    const fx = (dx / dist) * force;
+    const fy = (dy / dist) * force;
+    s.vx += fx; s.vy += fy;
+    t.vx -= fx; t.vy -= fy;
+  });
+  // 中心引力
+  nodes.forEach(n => {
+    n.vx += (window.innerWidth/2 - n.x) * CENTER_GRAVITY;
+    n.vy += (window.innerHeight/2 - n.y) * CENTER_GRAVITY;
+    n.vx *= DAMPING;
+    n.vy *= DAMPING;
+    n.x += n.vx;
+    n.y += n.vy;
+  });
+}
+
+// === 渲染 ===
+let offsetX = 0, offsetY = 0, scale = 1;
+let isDragging = false, lastX = 0, lastY = 0;
+
+canvas.addEventListener('mousedown', e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
+canvas.addEventListener('mouseup', () => { isDragging = false; });
+canvas.addEventListener('mousemove', e => {
+  if (isDragging) {
+    offsetX += e.clientX - lastX;
+    offsetY += e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+  } else {
+    // hover检测
+    const mx = (e.clientX - offsetX) / scale;
+    const my = (e.clientY - offsetY) / scale;
+    let hovered = null;
+    for (const n of nodes) {
+      const dx = n.x - mx, dy = n.y - my;
+      if (dx*dx + dy*dy < (n.r + 4) * (n.r + 4)) { hovered = n; break; }
+    }
+    if (hovered) {
+      tooltip.style.opacity = '1';
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top = (e.clientY + 14) + 'px';
+      let html = '';
+      if (hovered.type === 'keyword') {
+        html = `<div class="tt-title">🔑 ${hovered.label}</div><div class="tt-type" style="background:rgba(79,195,247,0.2);color:#4fc3f7">关键词</div><div class="tt-docs">关联文档：<br>`;
+        hovered.docs.forEach(did => {
+          const doc = data.documents.find(d => d.id === did);
+          if (doc) html += `<a href="${doc.url}" target="_blank">📄 ${doc.title}</a><br>`;
+        });
+        html += '</div>';
+      } else if (hovered.type === 'document') {
+        html = `<div class="tt-title">📄 ${hovered.label}</div><div class="tt-type" style="background:rgba(255,183,77,0.2);color:#ffb74d">文档</div><div class="tt-docs"><a href="${hovered.url}" target="_blank">打开文档 →</a></div>`;
+      } else if (hovered.type === 'category') {
+        html = `<div class="tt-title">📂 ${hovered.label}</div><div class="tt-type" style="background:rgba(129,199,132,0.2);color:#81c784">分类</div><div class="tt-docs"><a href="${hovered.url}" target="_blank">打开分类 →</a></div>`;
+      }
+      tooltip.innerHTML = html;
+    } else {
+      tooltip.style.opacity = '0';
+    }
+  }
+});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  scale = Math.max(0.3, Math.min(3, scale * delta));
+}, { passive: false });
+canvas.addEventListener('click', e => {
+  const mx = (e.clientX - offsetX) / scale;
+  const my = (e.clientY - offsetY) / scale;
+  for (const n of nodes) {
+    const dx = n.x - mx, dy = n.y - my;
+    if (dx*dx + dy*dy < (n.r + 4) * (n.r + 4)) {
+      if (n.url) window.open(n.url, '_blank');
+      return;
+    }
+  }
+});
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(offsetX, offsetY);
+  ctx.scale(scale, scale);
+
+  // 连线
+  links.forEach(link => {
+    const s = nodes.find(n => n.id === link.source);
+    const t = nodes.find(n => n.id === link.target);
+    if (!s || !t) return;
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    ctx.lineTo(t.x, t.y);
+    if (link.type === 'category') {
+      ctx.strokeStyle = 'rgba(129,199,132,0.25)';
+      ctx.setLineDash([]);
+    } else {
+      ctx.strokeStyle = 'rgba(79,195,247,0.15)';
+      ctx.setLineDash([4, 4]);
+    }
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  // 节点
+  nodes.forEach(n => {
+    // 光晕
+    const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r * 2.5);
+    grad.addColorStop(0, n.color + '40');
+    grad.addColorStop(1, n.color + '00');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 节点圆
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    ctx.fillStyle = n.color;
+    ctx.fill();
+    ctx.strokeStyle = n.color + '80';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 标签
+    ctx.fillStyle = '#e0e0e0';
+    ctx.font = n.type === 'document' ? '12px sans-serif' : '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    // 截断长标签
+    let label = n.label;
+    if (label.length > 16) label = label.slice(0, 14) + '…';
+    ctx.fillText(label, n.x, n.y + n.r + 6);
+  });
+
+  ctx.restore();
+}
+
+function loop() {
+  simulate();
+  render();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
